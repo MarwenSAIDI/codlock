@@ -18,6 +18,7 @@ from a2a.utils import AGENT_CARD_WELL_KNOWN_PATH, DEFAULT_RPC_URL, TransportProt
 from fastapi import FastAPI
 
 from codlock_agents.a2a_support import RoutedAgentExecutor, SkillRouter
+from codlock_agents.nlu import Extractor
 
 logger = logging.getLogger(__name__)
 
@@ -44,9 +45,11 @@ def build_card(
     )
 
 
-def build_app(card: AgentCard, router: SkillRouter) -> FastAPI:
+def build_app(
+    card: AgentCard, router: SkillRouter, extractor: Extractor | None = None
+) -> FastAPI:
     handler = DefaultRequestHandler(
-        agent_executor=RoutedAgentExecutor(router),
+        agent_executor=RoutedAgentExecutor(router, extractor),
         task_store=InMemoryTaskStore(),
         agent_card=card,
     )

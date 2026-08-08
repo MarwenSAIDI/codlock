@@ -1,11 +1,10 @@
 [project]
-name = "codlock-agents"
+name = "codlock-fitting-agent"
 version = "0.1.0"
-description = "CODLOCK Payment and Fitting agents (A2A servers)"
+description = "CODLOCK Fitting Agent (A2A server)"
 requires-python = ">=3.11"
 dependencies = [
     "a2a-sdk[http-server]>=1.1.2",
-    "mcp>=2.0.0",
     "pydantic>=2.9",
     "pydantic-settings>=2.6",
     "httpx>=0.27",
@@ -18,7 +17,6 @@ dependencies = [
 dev = ["pytest>=8.3", "pytest-asyncio>=0.24", "ruff>=0.7"]
 
 [project.scripts]
-payment-agent = "codlock_agents.payment.server:main"
 fitting-agent = "codlock_agents.fitting.server:main"
 
 [build-system]

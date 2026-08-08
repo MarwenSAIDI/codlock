@@ -7,6 +7,7 @@ from fastapi import FastAPI
 
 from codlock_agents.a2a_support import SkillRouter
 from codlock_agents.fitting.service import PreviewService, StubRenderer
+from codlock_agents.nlu import Extractor, GeminiExtractor, UnavailableExtractor
 from codlock_agents.schemas import (
     GeneratePreviewInput,
     GeneratePreviewOutput,
@@ -63,6 +64,13 @@ def build_router(settings: Settings) -> SkillRouter:
     return router
 
 
+def _select_extractor(settings: Settings) -> Extractor:
+    """Only used for plain-text ADK delegations. Absent key means refuse, not guess."""
+    if not settings.gemini_api_key:
+        return UnavailableExtractor()
+    return GeminiExtractor(settings.gemini_api_key, settings.nlu_model)
+
+
 def _select_renderer(settings: Settings):
     if settings.stub_mode or settings.image_provider == "stub":
         return StubRenderer()
@@ -87,7 +95,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         url=f"{settings.fitting_public_url}/",
         skills=SKILLS,
     )
-    return build_app(card, build_router(settings))
+    return build_app(card, build_router(settings), _select_extractor(settings))
 
 
 def main() -> None:
