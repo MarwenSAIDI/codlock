@@ -23,8 +23,8 @@ class Settings(BaseSettings):
 
     # --- payment agent ------------------------------------------------------------
     payment_host: str = "127.0.0.1"
-    payment_port: int = 8101
-    payment_public_url: str = "http://127.0.0.1:8101"
+    payment_port: int = 8001
+    payment_public_url: str = "http://127.0.0.1:8001"
 
     gravv_api_key: str | None = Field(
         default=None, description="grvSec_sandbox_... Without it the MCP loads only "
@@ -53,8 +53,8 @@ class Settings(BaseSettings):
 
     # --- fitting agent ------------------------------------------------------------
     fitting_host: str = "127.0.0.1"
-    fitting_port: int = 8102
-    fitting_public_url: str = "http://127.0.0.1:8102"
+    fitting_port: int = 8002
+    fitting_public_url: str = "http://127.0.0.1:8002"
 
     image_provider: Literal["stub", "gemini"] = "stub"
     gemini_api_key: str | None = None

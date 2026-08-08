@@ -4,9 +4,9 @@
 For the orchestrator owner: this is the smallest complete example of what your code
 has to send. Copy the request shape out of :func:`call`.
 
-    python scripts/call_agent.py 8101 collect_deposit '{"order_id": "ord_1", ...}'
-    python scripts/call_agent.py 8102 generate_preview @sample_preview.json
-    python scripts/call_agent.py 8101 --card
+    python scripts/call_agent.py 8001 collect_deposit '{"order_id": "ord_1", ...}'
+    python scripts/call_agent.py 8002 generate_preview @sample_preview.json
+    python scripts/call_agent.py 8001 --card
 """
 
 from __future__ import annotations

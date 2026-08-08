@@ -16,8 +16,8 @@ No credentials needed — stub mode is the default.
 ```bash
 cd agents
 uv sync --extra dev
-uv run payment-agent     # http://127.0.0.1:8101
-uv run fitting-agent     # http://127.0.0.1:8102
+uv run payment-agent     # http://127.0.0.1:8001
+uv run fitting-agent     # http://127.0.0.1:8002
 uv run pytest            # 20 tests, all green
 ```
 
@@ -62,11 +62,11 @@ HTTP 500.
 Working example to copy from: `scripts/call_agent.py`, or `tests/test_a2a_flow.py`.
 
 ```bash
-uv run python scripts/call_agent.py 8101 --card
-uv run python scripts/call_agent.py 8101 collect_deposit '{"order_id": "ord_1", ...}'
+uv run python scripts/call_agent.py 8001 --card
+uv run python scripts/call_agent.py 8001 collect_deposit '{"order_id": "ord_1", ...}'
 ```
 
-## Payment Agent — port 8101
+## Payment Agent — port 8001
 
 The agent does **not** decide the deposit. Risk scoring upstream decides it; this agent
 makes it payable, watches it clear, and settles it.
@@ -141,7 +141,7 @@ make the demo lie.
 Money is always a **string** decimal, never a JSON number. TND has three decimal places
 and floats lose millimes.
 
-## Fitting Agent — port 8102
+## Fitting Agent — port 8002
 
 | Skill | Purpose |
 |---|---|
