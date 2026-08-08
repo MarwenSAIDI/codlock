@@ -34,7 +34,7 @@ class Settings(BaseSettings):
         "fallback if renders run long on the day.",
     )
     nlu_model: str = Field(
-        default="gemini-2.5-flash",
+        default="gemini-flash-latest",
         description="Used only to turn an ADK plain-text delegation into a validated "
         "skill call. It never chooses what to render.",
     )

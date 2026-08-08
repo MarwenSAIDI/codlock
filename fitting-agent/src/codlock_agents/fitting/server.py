@@ -2,11 +2,19 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from a2a.types import AgentSkill
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 
 from codlock_agents.a2a_support import SkillRouter
 from codlock_agents.fitting.service import PreviewService, StubRenderer
+from codlock_agents.fitting.storage import (
+    LocalPreviewStore,
+    PreviewStore,
+    SupabasePreviewStore,
+)
 from codlock_agents.nlu import Extractor, GeminiExtractor, UnavailableExtractor
 from codlock_agents.schemas import (
     GeneratePreviewInput,
@@ -15,6 +23,9 @@ from codlock_agents.schemas import (
 )
 from codlock_agents.serving import build_app, build_card, serve
 from codlock_agents.settings import Settings, get_settings
+
+# Local fallback for rendered previews, until Supabase credentials arrive.
+PREVIEW_DIR = Path("previews")
 
 SKILLS = [
     AgentSkill(
@@ -71,16 +82,25 @@ def _select_extractor(settings: Settings) -> Extractor:
     return GeminiExtractor(settings.gemini_api_key, settings.nlu_model)
 
 
+def _select_store(settings: Settings) -> PreviewStore:
+    """Supabase when the backend owner has shared credentials, local disk until then."""
+    if settings.supabase_url and settings.supabase_service_key:
+        return SupabasePreviewStore(
+            settings.supabase_url,
+            settings.supabase_service_key,
+            settings.supabase_preview_bucket,
+        )
+    return LocalPreviewStore(PREVIEW_DIR, settings.fitting_public_url)
+
+
 def _select_renderer(settings: Settings):
     if settings.stub_mode or settings.image_provider == "stub":
         return StubRenderer()
     if not settings.gemini_api_key:
-        raise RuntimeError(
-            "IMAGE_PROVIDER=gemini but GEMINI_API_KEY is not set."
-        )
+        raise RuntimeError("IMAGE_PROVIDER=gemini but GEMINI_API_KEY is not set.")
     from codlock_agents.fitting.gemini_renderer import GeminiRenderer
 
-    return GeminiRenderer(settings)
+    return GeminiRenderer(settings, _select_store(settings))
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -95,7 +115,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         url=f"{settings.fitting_public_url}/",
         skills=SKILLS,
     )
-    return build_app(card, build_router(settings), _select_extractor(settings))
+    app = build_app(card, build_router(settings), _select_extractor(settings))
+    PREVIEW_DIR.mkdir(parents=True, exist_ok=True)
+    app.mount("/previews", StaticFiles(directory=PREVIEW_DIR), name="previews")
+    return app
 
 
 def main() -> None:

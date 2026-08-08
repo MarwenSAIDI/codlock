@@ -51,6 +51,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     settlementCurrency: env.SETTLEMENT_CURRENCY ?? 'USD',
 
     geminiApiKey: env.GEMINI_API_KEY || undefined,
-    nluModel: env.NLU_MODEL ?? 'gemini-2.5-flash',
+    nluModel: env.NLU_MODEL ?? 'gemini-flash-latest',
   };
 }
