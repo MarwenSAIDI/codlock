@@ -1,0 +1,2 @@
+google-adk[extensions]==2.6.3
+a2a-sdk==1.1.2
