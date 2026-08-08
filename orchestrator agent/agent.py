@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 from google.adk import Agent
 from google.adk.agents.remote_a2a_agent import RemoteA2aAgent
 from google.adk.models.lite_llm import LiteLlm
+from supabase import Client, create_client
 
 load_dotenv()
 
@@ -20,6 +21,20 @@ def _require_env(name: str) -> str:
     if not value:
         raise RuntimeError(f"Missing required environment variable: {name}")
     return value
+
+
+_supabase_client: Client | None = None
+
+
+def _get_supabase_client() -> Client:
+    """Lazily create and cache the Supabase client."""
+    global _supabase_client
+    if _supabase_client is None:
+        _supabase_client = create_client(
+            _require_env("SUPABASE_URL"),
+            _require_env("SUPABASE_KEY"),
+        )
+    return _supabase_client
 
 
 def _load_remote_a2a_agents() -> list[RemoteA2aAgent]:
@@ -53,13 +68,21 @@ def risk_score_tool(order_id: str) -> dict:
     raise NotImplementedError("risk scoring tool is not implemented yet")
 
 
-def get_product_tool(product_id: str) -> dict:
-    """Fetch product details by id.
+def get_product_tool(sku: str, size: str | None = None) -> dict:
+    """Fetch a product by SKU, optionally narrowed to a specific size.
 
     Args:
-        product_id: Identifier of the product to fetch.
+        sku: Product reference code shared across size/color variants.
+        size: Size variant to match (one of XS, S, M, L, XL, XXL, XXXL).
+
+    Returns:
+        The matching product as a dict, or an empty dict if none was found.
     """
-    raise NotImplementedError("product getter tool is not implemented yet")
+    query = _get_supabase_client().table("products").select("*").eq("sku", sku)
+    if size:
+        query = query.eq("size", size)
+    rows = query.limit(1).execute().data
+    return rows[0] if rows else {}
 
 
 def get_order_tool(order_id: str) -> dict:
