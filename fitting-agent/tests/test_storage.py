@@ -60,6 +60,7 @@ async def test_supabase_upload_targets_the_storage_path_and_upserts():
         seen["url"] = str(request.url)
         seen["upsert"] = request.headers.get("x-upsert")
         seen["auth"] = request.headers.get("authorization")
+        seen["apikey"] = request.headers.get("apikey")
         return httpx.Response(200, json={"Key": "previews/req_1.png"})
 
     def factory(**kwargs):
@@ -75,6 +76,9 @@ async def test_supabase_upload_targets_the_storage_path_and_upserts():
     # Re-rendering the same request_id must replace, not 409.
     assert seen["upsert"] == "true"
     assert seen["auth"] == "Bearer sb_secret_xyz"
+    # sb_secret_ keys are not JWTs; without apikey Supabase answers
+    # "Invalid Compact JWS", which reads like a bad key rather than a missing header.
+    assert seen["apikey"] == "sb_secret_xyz"
     assert url == (
         "https://ref.supabase.co/storage/v1/object/public/previews/req_1.png"
     )

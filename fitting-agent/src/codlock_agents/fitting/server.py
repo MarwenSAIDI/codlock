@@ -116,8 +116,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         skills=SKILLS,
     )
     app = build_app(card, build_router(settings), _select_extractor(settings))
+
     PREVIEW_DIR.mkdir(parents=True, exist_ok=True)
     app.mount("/previews", StaticFiles(directory=PREVIEW_DIR), name="previews")
+
+    store = _select_store(settings)
+    if isinstance(store, SupabasePreviewStore):
+        @app.on_event("startup")
+        async def _ensure_bucket() -> None:
+            # A fresh Supabase project has no buckets at all. Create ours once at
+            # boot rather than failing the first render of the demo.
+            await store.ensure_bucket()
+
     return app
 
 

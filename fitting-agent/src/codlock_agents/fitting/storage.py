@@ -79,6 +79,34 @@ class SupabasePreviewStore:
         self._bucket = bucket
         self._client_factory = client_factory
 
+    def _headers(self, **extra: str) -> dict[str, str]:
+        """Both headers, always.
+
+        The newer ``sb_secret_`` keys are not JWTs. Sending only
+        ``Authorization: Bearer`` makes Supabase try to parse one and fail with
+        "Invalid Compact JWS", which reads like a bad key rather than a missing header.
+        """
+        return {
+            "apikey": self._key,
+            "Authorization": f"Bearer {self._key}",
+            **extra,
+        }
+
+    async def ensure_bucket(self) -> None:
+        """Create the bucket if it is missing. A fresh project has none."""
+        async with self._client_factory(timeout=30) as client:
+            response = await client.post(
+                f"{self._base}/storage/v1/bucket",
+                headers=self._headers(**{"Content-Type": "application/json"}),
+                json={"id": self._bucket, "name": self._bucket, "public": True},
+            )
+        # 409 / "already exists" is the happy path on every run after the first.
+        if response.status_code >= 400 and "exist" not in response.text.lower():
+            logger.warning(
+                "could not ensure bucket %r: %s %s",
+                self._bucket, response.status_code, response.text[:200],
+            )
+
     async def put(self, key: str, data: bytes, media_type: str) -> str:
         filename = f"{key}{EXTENSIONS.get(media_type, '.png')}"
         endpoint = f"{self._base}/storage/v1/object/{self._bucket}/{filename}"
@@ -86,12 +114,11 @@ class SupabasePreviewStore:
             response = await client.post(
                 endpoint,
                 content=data,
-                headers={
-                    "Authorization": f"Bearer {self._key}",
+                headers=self._headers(**{
                     "Content-Type": media_type,
                     # Re-rendering the same request_id should replace, not 409.
                     "x-upsert": "true",
-                },
+                }),
             )
         if response.status_code >= 400:
             raise RuntimeError(
