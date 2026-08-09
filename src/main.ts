@@ -20,11 +20,27 @@ async function bootstrap(): Promise<void> {
   const port = config.get<number>('port') as number;
   const apiPrefix = config.get<string>('apiPrefix') as string;
   const corsOrigins = config.get<string[]>('corsOrigins') ?? [];
+  const swaggerEnabled = config.get<boolean>('swaggerEnabled') ?? false;
 
   // ── Global HTTP hardening ──
-  app.use(helmet());
+  app.use(
+    helmet({
+      // swagger-ui bootstraps itself with inline script and style tags, which
+      // helmet's default CSP blocks. Relax those two directives only in the
+      // environments where the docs are actually mounted.
+      contentSecurityPolicy: swaggerEnabled
+        ? {
+            directives: {
+              ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+              'script-src': ["'self'", "'unsafe-inline'"],
+              'img-src': ["'self'", 'data:', 'https:'],
+            },
+          }
+        : undefined,
+    }),
+  );
   app.enableCors({
-    origin: corsOrigins.length ? corsOrigins : true,
+    origin: corsOrigins.length ? corsOrigins : false,
     credentials: true,
   });
 
@@ -45,30 +61,38 @@ async function bootstrap(): Promise<void> {
   app.enableShutdownHooks();
 
   // ── Swagger / OpenAPI ──
-  const swaggerConfig = new DocumentBuilder()
-    .setTitle('CODLOCK Backend Core')
-    .setDescription(
-      'AI-driven trust & confidence layer for social e-commerce — order lifecycle, ' +
-        'virtual fitting, risk-based deposits (Gravv), and seller analytics.',
-    )
-    .setVersion('1.0')
-    .addBearerAuth()
-    .addTag('Orders')
-    .addTag('Products')
-    .addTag('Customers')
-    .addTag('Fitting Room')
-    .addTag('Risk')
-    .addTag('Analytics')
-    .addTag('Health')
-    .build();
-  const document = SwaggerModule.createDocument(app, swaggerConfig);
-  SwaggerModule.setup(`${apiPrefix}/docs`, app, document, {
-    swaggerOptions: { persistAuthorization: true },
-  });
+  // The docs route is unauthenticated, so it is mounted only when enabled
+  // (off by default in production — see config/configuration.ts).
+  if (swaggerEnabled) {
+    const swaggerConfig = new DocumentBuilder()
+      .setTitle('CODLOCK Backend Core')
+      .setDescription(
+        'AI-driven trust & confidence layer for social e-commerce — order lifecycle, ' +
+          'virtual fitting, risk-based deposits (Gravv), and seller analytics.',
+      )
+      .setVersion('1.0')
+      .addBearerAuth()
+      .addTag('Orders')
+      .addTag('Products')
+      .addTag('Customers')
+      .addTag('Fitting Room')
+      .addTag('Risk')
+      .addTag('Analytics')
+      .addTag('Health')
+      .build();
+    const document = SwaggerModule.createDocument(app, swaggerConfig);
+    SwaggerModule.setup(`${apiPrefix}/docs`, app, document, {
+      swaggerOptions: { persistAuthorization: true },
+    });
+  }
 
   await app.listen(port);
   logger.log(`CODLOCK core listening on http://localhost:${port}/${apiPrefix}`);
-  logger.log(`Swagger UI at http://localhost:${port}/${apiPrefix}/docs`);
+  logger.log(
+    swaggerEnabled
+      ? `Swagger UI at http://localhost:${port}/${apiPrefix}/docs`
+      : 'Swagger UI disabled (set SWAGGER_ENABLED=true to expose it)',
+  );
 }
 
 void bootstrap();

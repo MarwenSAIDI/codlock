@@ -41,15 +41,21 @@ export class OrchestratorService {
   ) {
     this.baseUrl = this.config.get<string>('orchestrator.baseUrl') as string;
     this.apiKey = this.config.get<string>('orchestrator.apiKey');
-    this.timeoutMs = this.config.get<number>('orchestrator.timeoutMs') as number;
-    this.maxRetries = this.config.get<number>('orchestrator.maxRetries') as number;
+    this.timeoutMs = this.config.get<number>(
+      'orchestrator.timeoutMs',
+    ) as number;
+    this.maxRetries = this.config.get<number>(
+      'orchestrator.maxRetries',
+    ) as number;
     this.retryDelayMs = this.config.get<number>(
       'orchestrator.retryDelayMs',
     ) as number;
 
     this.breaker = new CircuitBreaker(
       'orchestrator',
-      this.config.get<number>('orchestrator.circuitBreaker.failureThreshold') as number,
+      this.config.get<number>(
+        'orchestrator.circuitBreaker.failureThreshold',
+      ) as number,
       this.config.get<number>('orchestrator.circuitBreaker.openMs') as number,
     );
   }
@@ -57,8 +63,13 @@ export class OrchestratorService {
   // ── Public capabilities ────────────────────────────────────
 
   /** Module 3 — trigger the Fitting Agent to render a try-on preview. */
-  generatePreview(body: GeneratePreviewRequest): Promise<GeneratePreviewResponse> {
-    return this.post<GeneratePreviewResponse>('/agent/fitting/generate-preview', body);
+  generatePreview(
+    body: GeneratePreviewRequest,
+  ): Promise<GeneratePreviewResponse> {
+    return this.post<GeneratePreviewResponse>(
+      '/agent/fitting/generate-preview',
+      body,
+    );
   }
 
   /** Module 4 — ask the Risk Scoring Tool for a 0–100 score. */
@@ -70,7 +81,12 @@ export class OrchestratorService {
   createPaymentLink(
     body: CreatePaymentLinkRequest,
   ): Promise<CreatePaymentLinkResponse> {
-    return this.post<CreatePaymentLinkResponse>('/agent/payment/create-link', body);
+    return this.request<CreatePaymentLinkResponse>({
+      method: 'POST',
+      url: '/agent/payment/create-link',
+      data: body,
+      headers: { 'Idempotency-Key': body.idempotencyKey },
+    });
   }
 
   /** Liveness probe for the health module. */
@@ -111,11 +127,12 @@ export class OrchestratorService {
           this.http.request<T>({
             baseURL: this.baseUrl,
             timeout: this.timeoutMs,
+            ...cfg,
             headers: {
               'Content-Type': 'application/json',
               ...(this.apiKey ? { 'x-api-key': this.apiKey } : {}),
+              ...(cfg.headers ?? {}),
             },
-            ...cfg,
           }),
         );
         return response.data;

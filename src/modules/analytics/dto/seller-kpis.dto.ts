@@ -4,13 +4,21 @@ export class ZoneRefusalStat {
   @ApiProperty({ example: 'Kairouan' })
   zone: string;
 
-  @ApiProperty({ example: 14 })
-  totalOrders: number;
+  @ApiProperty({
+    example: 14,
+    description:
+      'Orders in this zone that reached ACCEPTED or REFUSED. Orders still in ' +
+      'flight are excluded so the rate is not diluted by pending deliveries.',
+  })
+  settledOrders: number;
 
   @ApiProperty({ example: 5 })
   refusedOrders: number;
 
-  @ApiProperty({ example: 0.357, description: 'Refusal rate 0–1.' })
+  @ApiProperty({
+    example: 0.357,
+    description: 'refusedOrders / settledOrders, 0–1.',
+  })
   refusalRate: number;
 }
 
@@ -29,13 +37,15 @@ export class SellerKpis {
 
   @ApiProperty({
     example: 18240.5,
-    description: 'Value of orders that completed instead of being refused (TND).',
+    description:
+      'Value of orders that completed instead of being refused (TND).',
   })
   savedFromAcceptedOrders: number;
 
   @ApiProperty({
     example: 780.0,
-    description: 'Round-trip delivery fees covered by deposits on refused orders (TND).',
+    description:
+      'Round-trip delivery fees covered by deposits on refused orders (TND).',
   })
   feesCoveredByDeposits: number;
 

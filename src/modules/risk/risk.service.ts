@@ -28,11 +28,16 @@ export class RiskService {
     private readonly config: ConfigService,
   ) {
     this.rates = this.config.get('risk.depositRates') as typeof this.rates;
-    this.thresholds = this.config.get('risk.thresholds') as typeof this.thresholds;
+    this.thresholds = this.config.get(
+      'risk.thresholds',
+    ) as typeof this.thresholds;
   }
 
-  async evaluate(dto: EvaluateRiskDto): Promise<RiskResult> {
-    const customer = await this.customers.findOne(dto.customerId);
+  async evaluate(sellerId: string, dto: EvaluateRiskDto): Promise<RiskResult> {
+    const customer = await this.customers.findOneForSeller(
+      sellerId,
+      dto.customerId,
+    );
 
     let score: number;
     let factors: Record<string, unknown> | undefined;
@@ -52,7 +57,10 @@ export class RiskService {
       this.logger.warn(
         `Risk Scoring Tool unavailable, using local fallback: ${(err as Error).message}`,
       );
-      score = this.localHeuristic(customer.refused_orders, customer.total_orders);
+      score = this.localHeuristic(
+        customer.refused_orders,
+        customer.total_orders,
+      );
       factors = { fallback: true };
     }
 

@@ -23,7 +23,10 @@ export class Product {
   @ApiProperty({ example: ['black', 'white'], type: [String] })
   colors: string[];
 
-  @ApiProperty({ example: 'https://cdn.codlock.tn/p/tshirt-blk.jpg', nullable: true })
+  @ApiProperty({
+    example: 'https://cdn.codlock.tn/p/tshirt-blk.jpg',
+    nullable: true,
+  })
   image_url: string | null;
 
   @ApiProperty({ example: 'apparel', nullable: true })

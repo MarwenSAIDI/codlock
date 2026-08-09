@@ -1,4 +1,6 @@
 import {
+  BadRequestException,
+  ConflictException,
   Injectable,
   Logger,
   OnModuleInit,
@@ -6,6 +8,13 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+
+/** A PostgREST/PostgreSQL error carries the SQLSTATE in `code`. */
+interface PostgrestError {
+  message: string;
+  code?: string;
+  details?: string;
+}
 
 /**
  * Thin wrapper around a single, server-side Supabase client using the
@@ -25,7 +34,9 @@ export class SupabaseService implements OnModuleInit {
     const schema = this.config.get<string>('supabase.schema') ?? 'public';
 
     if (!url || !key) {
-      throw new InternalServerErrorException('Supabase credentials are not configured');
+      throw new InternalServerErrorException(
+        'Supabase credentials are not configured',
+      );
     }
 
     // `db.schema` accepts a runtime string; the client generic defaults to the
@@ -47,14 +58,41 @@ export class SupabaseService implements OnModuleInit {
   }
 
   /**
-   * Unwraps a Supabase `{ data, error }` result, throwing on error so the
-   * global filter can turn it into a clean 500. Keeps services terse.
+   * Unwraps a Supabase `{ data, error }` result, throwing on error. Known
+   * client-caused constraint violations are mapped to the right 4xx so callers
+   * get an actionable status instead of a blanket 500; everything else stays a
+   * 500 with the detail confined to the server log.
    */
-  unwrap<T>(result: { data: T | null; error: { message: string } | null }): T {
+  unwrap<T>(result: { data: T | null; error: PostgrestError | null }): T {
     if (result.error) {
-      this.logger.error(`Supabase query failed: ${result.error.message}`);
-      throw new InternalServerErrorException('Database operation failed');
+      throw this.toHttpError(result.error);
     }
     return result.data as T;
+  }
+
+  /**
+   * Translates a PostgreSQL SQLSTATE into an HTTP exception.
+   *   23505 unique_violation      → 409 Conflict
+   *   23503 foreign_key_violation → 400 Bad Request
+   *   23514 check_violation       → 400 Bad Request
+   * The raw driver message (which can leak column/constraint internals) is
+   * logged, never returned to the client.
+   */
+  private toHttpError(error: PostgrestError): Error {
+    this.logger.error(
+      `Supabase query failed [${error.code ?? 'n/a'}]: ${error.message}`,
+    );
+    switch (error.code) {
+      case '23505':
+        return new ConflictException('Resource already exists');
+      case '23503':
+        return new BadRequestException('Referenced resource does not exist');
+      case '23514':
+        return new BadRequestException(
+          'A field failed a validation constraint',
+        );
+      default:
+        return new InternalServerErrorException('Database operation failed');
+    }
   }
 }

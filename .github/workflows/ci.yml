@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main, backend]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # --max-warnings keeps the current `any`-related warnings visible without
+      # failing the build; lower it as the tree gets cleaner.
+      - name: Lint
+        run: npm run lint:ci
+
+      - name: Typecheck
+        run: npx tsc --noEmit -p tsconfig.json
+
+      - name: Unit tests
+        run: npm test -- --ci
+
+      # Boots the real AppModule over HTTP with Supabase/Firebase/Orchestrator
+      # stubbed. Needs no external services.
+      - name: E2E tests
+        run: npm run test:e2e -- --ci
+
+      # Runs db/schema.sql and db/migrations/ against a real PostgreSQL engine
+      # (PGlite). No service container required.
+      - name: Database integration tests
+        run: npm run test:db -- --ci
+
+      - name: Build
+        run: npm run build

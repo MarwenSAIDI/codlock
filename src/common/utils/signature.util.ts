@@ -15,9 +15,7 @@ export function verifyHmacSignature(
   if (!signatureHeader || !secret) return false;
 
   const provided = signatureHeader.replace(/^sha256=/i, '').trim();
-  const expected = createHmac('sha256', secret)
-    .update(rawBody)
-    .digest('hex');
+  const expected = createHmac('sha256', secret).update(rawBody).digest('hex');
 
   const a = Buffer.from(provided, 'hex');
   const b = Buffer.from(expected, 'hex');

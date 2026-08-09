@@ -8,7 +8,10 @@ import {
 } from 'class-validator';
 
 export class GeneratePreviewDto {
-  @ApiProperty({ format: 'uuid', description: 'Customer requesting the try-on.' })
+  @ApiProperty({
+    format: 'uuid',
+    description: 'Customer requesting the try-on.',
+  })
   @IsUUID()
   customerId: string;
 
@@ -20,10 +23,13 @@ export class GeneratePreviewDto {
     example: 'https://cdn.codlock.tn/u/customer-photo.jpg',
     description: 'Public URL of the customer photo to render the try-on on.',
   })
-  @IsUrl()
+  @IsUrl({ protocols: ['https'], require_protocol: true })
   customerPhotoUrl: string;
 
-  @ApiPropertyOptional({ format: 'uuid', description: 'Link the session to an order.' })
+  @ApiPropertyOptional({
+    format: 'uuid',
+    description: 'Link the session to an order.',
+  })
   @IsOptional()
   @IsUUID()
   orderId?: string;

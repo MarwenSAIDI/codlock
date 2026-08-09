@@ -12,10 +12,20 @@ export const validationSchema = Joi.object({
   PORT: Joi.number().default(3000),
   API_PREFIX: Joi.string().default('api/v1'),
   CORS_ORIGINS: Joi.string().allow('').optional(),
+  // Left blank means "use the default": on outside production. See
+  // config/configuration.ts.
+  SWAGGER_ENABLED: Joi.boolean().optional().allow(''),
+
+  // Rate limiting
+  THROTTLE_TTL_MS: Joi.number().integer().min(1000).default(60000),
+  THROTTLE_LIMIT: Joi.number().integer().min(1).default(120),
+  THROTTLE_REDIS_URL: Joi.string().uri().optional().allow(''),
 
   // Security
   JWT_SECRET: Joi.string().min(16).required(),
   JWT_EXPIRES_IN: Joi.string().default('1d'),
+  JWT_ISSUER: Joi.string().optional().allow(''),
+  JWT_AUDIENCE: Joi.string().optional().allow(''),
 
   // Supabase
   SUPABASE_URL: Joi.string().uri().required(),
@@ -46,6 +56,7 @@ export const validationSchema = Joi.object({
 
   // Social webhook
   SOCIAL_WEBHOOK_SECRET: Joi.string().optional().allow(''),
+  SOCIAL_WEBHOOK_MAX_SKEW_SECONDS: Joi.number().integer().min(1).default(300),
 
   // Risk engine
   DEPOSIT_RATE_TRUSTED: Joi.number().min(0).max(1).default(0),

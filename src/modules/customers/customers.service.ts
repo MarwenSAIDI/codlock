@@ -1,11 +1,12 @@
-import {
-  Injectable,
-  Logger,
-  NotFoundException,
-} from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { SupabaseService } from '../../database/supabase/supabase.service';
 import { RiskTier } from '../../common/enums';
+import {
+  Paginated,
+  PaginationQueryDto,
+  pageRange,
+  paginated,
+} from '../../common/dto/pagination.dto';
 import { Customer } from './entities/customer.entity';
 import { CreateCustomerDto } from './dto/create-customer.dto';
 import { UpdateCustomerDto } from './dto/update-customer.dto';
@@ -16,24 +17,30 @@ const TABLE = 'customers';
 export class CustomersService {
   private readonly logger = new Logger(CustomersService.name);
 
-  constructor(
-    private readonly supabase: SupabaseService,
-    private readonly config: ConfigService,
-  ) {}
+  constructor(private readonly supabase: SupabaseService) {}
 
-  async findAll(): Promise<Customer[]> {
+  async findAllBySeller(
+    sellerId: string,
+    pagination: PaginationQueryDto,
+  ): Promise<Paginated<Customer>> {
+    const { page, limit } = pagination;
+    const [from, to] = pageRange(page, limit);
     const result = await this.supabase
       .table(TABLE)
-      .select('*')
-      .order('updated_at', { ascending: false });
-    return this.supabase.unwrap<Customer[]>(result) ?? [];
+      .select('*', { count: 'exact' })
+      .eq('seller_id', sellerId)
+      .order('updated_at', { ascending: false })
+      .range(from, to);
+    const items = this.supabase.unwrap<Customer[]>(result) ?? [];
+    return paginated(items, result.count ?? items.length, page, limit);
   }
 
-  async findOne(id: string): Promise<Customer> {
+  async findOneForSeller(sellerId: string, id: string): Promise<Customer> {
     const result = await this.supabase
       .table(TABLE)
       .select('*')
       .eq('id', id)
+      .eq('seller_id', sellerId)
       .maybeSingle();
     const customer = this.supabase.unwrap<Customer | null>(result);
     if (!customer) throw new NotFoundException(`Customer ${id} not found`);
@@ -41,19 +48,21 @@ export class CustomersService {
   }
 
   /** Look up by phone; used by the webhook path to resolve chat orders. */
-  async findByPhone(phone: string): Promise<Customer | null> {
+  async findByPhone(sellerId: string, phone: string): Promise<Customer | null> {
     const result = await this.supabase
       .table(TABLE)
       .select('*')
+      .eq('seller_id', sellerId)
       .eq('phone', phone)
       .maybeSingle();
     return this.supabase.unwrap<Customer | null>(result);
   }
 
-  async create(dto: CreateCustomerDto): Promise<Customer> {
+  async create(sellerId: string, dto: CreateCustomerDto): Promise<Customer> {
     const result = await this.supabase
       .table(TABLE)
       .insert({
+        seller_id: sellerId,
         phone: dto.phone,
         name: dto.name ?? null,
         zone: dto.zone ?? null,
@@ -68,56 +77,38 @@ export class CustomersService {
   }
 
   /** Get-or-create by phone — the entry point for chat-originated orders. */
-  async upsertByPhone(dto: CreateCustomerDto): Promise<Customer> {
-    const existing = await this.findByPhone(dto.phone);
-    if (existing) return existing;
-    return this.create(dto);
+  async upsertByPhone(
+    sellerId: string,
+    dto: CreateCustomerDto,
+  ): Promise<Customer> {
+    const values: Record<string, unknown> = {
+      seller_id: sellerId,
+      phone: dto.phone,
+    };
+    if (dto.name !== undefined) values.name = dto.name;
+    if (dto.zone !== undefined) values.zone = dto.zone;
+
+    const result = await this.supabase
+      .table(TABLE)
+      .upsert(values, { onConflict: 'seller_id,phone' })
+      .select()
+      .single();
+    return this.supabase.unwrap<Customer>(result);
   }
 
-  async update(id: string, dto: UpdateCustomerDto): Promise<Customer> {
-    await this.findOne(id);
+  async update(
+    sellerId: string,
+    id: string,
+    dto: UpdateCustomerDto,
+  ): Promise<Customer> {
+    await this.findOneForSeller(sellerId, id);
     const result = await this.supabase
       .table(TABLE)
       .update({ ...dto, updated_at: new Date().toISOString() })
       .eq('id', id)
+      .eq('seller_id', sellerId)
       .select()
       .single();
     return this.supabase.unwrap<Customer>(result);
-  }
-
-  /**
-   * Atomically record an order outcome against the customer's history.
-   * Called by OrdersService when an order reaches ACCEPTED / REFUSED so the
-   * risk engine always reads fresh aggregates.
-   */
-  async recordOutcome(id: string, accepted: boolean): Promise<Customer> {
-    const customer = await this.findOne(id);
-    const successful_orders =
-      customer.successful_orders + (accepted ? 1 : 0);
-    const refused_orders = customer.refused_orders + (accepted ? 0 : 1);
-    const total_orders = customer.total_orders + 1;
-
-    const result = await this.supabase
-      .table(TABLE)
-      .update({
-        total_orders,
-        successful_orders,
-        refused_orders,
-        risk_tier: this.deriveTier(refused_orders, total_orders),
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', id)
-      .select()
-      .single();
-    return this.supabase.unwrap<Customer>(result);
-  }
-
-  /** Simple heuristic tier from historical refusal rate. */
-  private deriveTier(refused: number, total: number): RiskTier {
-    if (total === 0) return RiskTier.MEDIUM;
-    const rate = refused / total;
-    if (rate >= 0.4) return RiskTier.HIGH;
-    if (rate <= 0.1 && total >= 3) return RiskTier.TRUSTED;
-    return RiskTier.MEDIUM;
   }
 }

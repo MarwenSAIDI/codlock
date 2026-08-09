@@ -17,7 +17,10 @@ export class FittingSession {
   @ApiProperty({ example: 'https://cdn.codlock.tn/u/photo.jpg' })
   original_photo_url: string;
 
-  @ApiProperty({ example: 'https://cdn.codlock.tn/preview/abc.jpg', nullable: true })
+  @ApiProperty({
+    example: 'https://cdn.codlock.tn/preview/abc.jpg',
+    nullable: true,
+  })
   preview_photo_url: string | null;
 
   @ApiProperty({ format: 'date-time' })

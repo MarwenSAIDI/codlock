@@ -24,10 +24,7 @@ import { JwtAuthGuard } from './guards/jwt-auth.guard';
       }),
     }),
   ],
-  providers: [
-    JwtStrategy,
-    { provide: APP_GUARD, useClass: JwtAuthGuard },
-  ],
+  providers: [JwtStrategy, { provide: APP_GUARD, useClass: JwtAuthGuard }],
   exports: [JwtModule, PassportModule],
 })
 export class AuthModule {}

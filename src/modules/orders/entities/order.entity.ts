@@ -50,6 +50,9 @@ export class Order {
   @ApiProperty({ example: 159.8 })
   total_price: number;
 
+  @ApiProperty({ example: 'TND' })
+  currency: string;
+
   @ApiProperty({ example: 62, nullable: true })
   risk_score: number | null;
 
@@ -76,4 +79,7 @@ export class Order {
 
   @ApiProperty({ format: 'date-time' })
   updated_at: string;
+
+  @ApiProperty({ example: 1 })
+  version: number;
 }

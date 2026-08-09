@@ -15,9 +15,10 @@ import { ApiResponse } from '../dto/api-response.dto';
  * plain payloads — never the envelope themselves.
  */
 @Injectable()
-export class ResponseInterceptor<T>
-  implements NestInterceptor<T, ApiResponse<T>>
-{
+export class ResponseInterceptor<T> implements NestInterceptor<
+  T,
+  ApiResponse<T>
+> {
   intercept(
     context: ExecutionContext,
     next: CallHandler,

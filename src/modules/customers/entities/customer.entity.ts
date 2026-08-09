@@ -9,6 +9,9 @@ export class Customer {
   @ApiProperty({ format: 'uuid' })
   id: string;
 
+  @ApiProperty({ format: 'uuid' })
+  seller_id: string;
+
   @ApiProperty({ example: '+21620123456' })
   phone: string;
 

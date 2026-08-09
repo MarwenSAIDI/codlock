@@ -2,6 +2,10 @@ import { Body, Controller, Post } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RiskService } from './risk.service';
 import { EvaluateRiskDto } from './dto/evaluate-risk.dto';
+import {
+  AuthenticatedSeller,
+  CurrentSeller,
+} from '../../common/decorators/current-seller.decorator';
 
 @ApiTags('Risk')
 @ApiBearerAuth()
@@ -15,7 +19,10 @@ export class RiskController {
     description:
       'Returns a 0–100 risk score, tier, and the deposit rate/amount to charge before shipping.',
   })
-  evaluate(@Body() dto: EvaluateRiskDto) {
-    return this.risk.evaluate(dto);
+  evaluate(
+    @CurrentSeller() seller: AuthenticatedSeller,
+    @Body() dto: EvaluateRiskDto,
+  ) {
+    return this.risk.evaluate(seller.sellerId, dto);
   }
 }

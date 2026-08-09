@@ -10,8 +10,10 @@ RUN npm run build
 FROM node:22-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
+RUN addgroup -S codlock && adduser -S codlock -G codlock
 COPY package*.json ./
 RUN npm ci --omit=dev && npm cache clean --force
-COPY --from=build /app/dist ./dist
+COPY --from=build --chown=codlock:codlock /app/dist ./dist
+USER codlock
 EXPOSE 3000
 CMD ["node", "dist/main.js"]

@@ -32,7 +32,11 @@ export class ApiResponse<T> {
     };
   }
 
-  static fail(error: string, path?: string, requestId?: string): ApiResponse<null> {
+  static fail(
+    error: string,
+    path?: string,
+    requestId?: string,
+  ): ApiResponse<null> {
     return {
       success: false,
       data: null,

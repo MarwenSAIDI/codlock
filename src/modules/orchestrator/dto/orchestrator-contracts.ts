@@ -49,6 +49,7 @@ export interface CreatePaymentLinkRequest {
   customerId: string;
   amount: number;
   currency: string;
+  idempotencyKey: string;
   description?: string;
   metadata?: Record<string, unknown>;
 }

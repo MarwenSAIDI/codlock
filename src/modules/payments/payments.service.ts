@@ -1,24 +1,20 @@
-import {
-  forwardRef,
-  Inject,
-  Injectable,
-  Logger,
-  NotFoundException,
-} from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { SupabaseService } from '../../database/supabase/supabase.service';
 import { OrchestratorService } from '../orchestrator/orchestrator.service';
-import { OrdersService } from '../orders/orders.service';
-import { Order } from '../orders/entities/order.entity';
 import { CreatePaymentLinkResponse } from '../orchestrator/dto/orchestrator-contracts';
-import { DepositStatus, GravvEventType } from '../../common/enums';
+import { Order } from '../orders/entities/order.entity';
 import { GravvWebhookDto } from './dto/gravv-webhook.dto';
 
+export interface ProcessedPaymentWebhook {
+  orderId: string;
+  applied: string;
+  duplicate: boolean;
+}
+
 /**
- * Module 5 — Gravv Payment Gateway integration.
- *
- * Outbound: requests a deposit payment link through the Orchestrator's
- * Payment Agent (→ gravvfi/mcp).
- * Inbound: processes verified Gravv webhooks and drives the order's deposit
- * state via OrdersService.
+ * Gravv payment integration. Payment creation carries an idempotency key;
+ * webhook processing is delegated to a PostgreSQL function so event
+ * deduplication and the order transition happen in one transaction.
  */
 @Injectable()
 export class PaymentsService {
@@ -26,17 +22,19 @@ export class PaymentsService {
 
   constructor(
     private readonly orchestrator: OrchestratorService,
-    @Inject(forwardRef(() => OrdersService))
-    private readonly orders: OrdersService,
+    private readonly supabase: SupabaseService,
   ) {}
 
-  /** Create a deposit payment link for an order that requires one. */
-  async createDepositLink(order: Order): Promise<CreatePaymentLinkResponse> {
+  async createDepositLink(
+    order: Order,
+    idempotencyKey: string,
+  ): Promise<CreatePaymentLinkResponse> {
     const link = await this.orchestrator.createPaymentLink({
       orderId: order.id,
       customerId: order.customer_id,
       amount: order.deposit_amount ?? 0,
-      currency: 'TND',
+      currency: order.currency,
+      idempotencyKey,
       description: `CODLOCK deposit for order ${order.id}`,
       metadata: { orderId: order.id, sellerId: order.seller_id },
     });
@@ -46,44 +44,17 @@ export class PaymentsService {
     return link;
   }
 
-  /**
-   * Handle a signature-verified Gravv webhook. Resolves the target order via
-   * the metadata.orderId (preferred) or the payment id, then applies the
-   * matching deposit-state transition. Idempotent by design — replaying the
-   * same event lands the order in the same state.
-   */
-  async processWebhook(dto: GravvWebhookDto): Promise<{ orderId: string; applied: string }> {
-    const order = await this.resolveOrder(dto);
-
-    switch (dto.event) {
-      case GravvEventType.PAYMENT_SUCCEEDED:
-        await this.orders.markDepositPaid(order.id);
-        return { orderId: order.id, applied: 'DEPOSIT_PAID' };
-
-      case GravvEventType.PAYMENT_FAILED:
-        await this.orders.markDepositFailed(order.id, DepositStatus.FAILED);
-        return { orderId: order.id, applied: 'DEPOSIT_FAILED' };
-
-      case GravvEventType.PAYMENT_EXPIRED:
-        await this.orders.markDepositFailed(order.id, DepositStatus.EXPIRED);
-        return { orderId: order.id, applied: 'DEPOSIT_EXPIRED' };
-
-      default:
-        this.logger.warn(`Ignoring unhandled Gravv event: ${dto.event}`);
-        return { orderId: order.id, applied: 'IGNORED' };
+  async processWebhook(dto: GravvWebhookDto): Promise<ProcessedPaymentWebhook> {
+    const result = await this.supabase.client.rpc('process_gravv_webhook', {
+      p_event_id: dto.eventId,
+      p_event_type: dto.event,
+      p_payment_id: dto.paymentId,
+      p_amount: dto.amount,
+      p_currency: dto.currency.toUpperCase(),
+    });
+    if (result.error) {
+      throw new BadRequestException(result.error.message);
     }
-  }
-
-  private async resolveOrder(dto: GravvWebhookDto): Promise<Order> {
-    if (dto.metadata?.orderId) {
-      return this.orders.findOne(dto.metadata.orderId);
-    }
-    const byPayment = await this.orders.findByPaymentId(dto.paymentId);
-    if (!byPayment) {
-      throw new NotFoundException(
-        `No order matches Gravv payment ${dto.paymentId}`,
-      );
-    }
-    return byPayment;
+    return result.data;
   }
 }

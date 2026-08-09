@@ -2,18 +2,35 @@
  * Strongly-typed configuration namespace, loaded once at bootstrap.
  * Access via `ConfigService.get('<key>')` or the typed helpers below.
  */
+const env = process.env.NODE_ENV ?? 'development';
+
 export default () => ({
-  env: process.env.NODE_ENV ?? 'development',
+  env,
   port: parseInt(process.env.PORT ?? '3000', 10),
   apiPrefix: process.env.API_PREFIX ?? 'api/v1',
+  // Interactive API docs are unauthenticated, so they stay off in production
+  // unless an operator opts in explicitly.
+  swaggerEnabled: process.env.SWAGGER_ENABLED
+    ? process.env.SWAGGER_ENABLED === 'true'
+    : env !== 'production',
   corsOrigins: (process.env.CORS_ORIGINS ?? '')
     .split(',')
     .map((o) => o.trim())
     .filter(Boolean),
 
+  throttle: {
+    ttlMs: parseInt(process.env.THROTTLE_TTL_MS ?? '60000', 10),
+    limit: parseInt(process.env.THROTTLE_LIMIT ?? '120', 10),
+    // Reserved for a future shared store (see app.module.ts). Unused until a
+    // Redis storage adapter is wired in for multi-instance deployment.
+    redisUrl: process.env.THROTTLE_REDIS_URL,
+  },
+
   jwt: {
     secret: process.env.JWT_SECRET as string,
     expiresIn: process.env.JWT_EXPIRES_IN ?? '1d',
+    issuer: process.env.JWT_ISSUER,
+    audience: process.env.JWT_AUDIENCE,
   },
 
   supabase: {
@@ -37,7 +54,10 @@ export default () => ({
     apiKey: process.env.ORCHESTRATOR_API_KEY as string,
     timeoutMs: parseInt(process.env.ORCHESTRATOR_TIMEOUT_MS ?? '15000', 10),
     maxRetries: parseInt(process.env.ORCHESTRATOR_MAX_RETRIES ?? '3', 10),
-    retryDelayMs: parseInt(process.env.ORCHESTRATOR_RETRY_DELAY_MS ?? '500', 10),
+    retryDelayMs: parseInt(
+      process.env.ORCHESTRATOR_RETRY_DELAY_MS ?? '500',
+      10,
+    ),
     circuitBreaker: {
       failureThreshold: parseInt(
         process.env.ORCHESTRATOR_CB_FAILURE_THRESHOLD ?? '5',
@@ -55,6 +75,12 @@ export default () => ({
 
   social: {
     webhookSecret: process.env.SOCIAL_WEBHOOK_SECRET as string,
+    // Chat webhook replay window: signed payloads older/newer than this are
+    // rejected. Also see the event-id dedup in record_chat_webhook_event.
+    maxSkewSeconds: parseInt(
+      process.env.SOCIAL_WEBHOOK_MAX_SKEW_SECONDS ?? '300',
+      10,
+    ),
   },
 
   risk: {

@@ -24,7 +24,12 @@ export class FirebaseService implements OnModuleInit {
     const privateKey = this.config.get<string>('firebase.privateKey');
     const databaseUrl = this.config.get<string>('firebase.databaseUrl');
 
-    if (!projectId || !clientEmail || !privateKey) {
+    // Local-dev mode: when the Firestore emulator host is set, the Admin SDK
+    // talks to the emulator and needs no real service-account credentials —
+    // only a project id.
+    const emulatorHost = process.env.FIRESTORE_EMULATOR_HOST;
+
+    if (!projectId || (!emulatorHost && (!clientEmail || !privateKey))) {
       this.logger.warn(
         'Firebase credentials incomplete — risk logging runs in no-op mode.',
       );
@@ -32,19 +37,26 @@ export class FirebaseService implements OnModuleInit {
     }
 
     try {
-      this.app =
-        admin.apps.length > 0 && admin.apps[0]
-          ? admin.apps[0]
-          : admin.initializeApp({
-              credential: admin.credential.cert({
-                projectId,
-                clientEmail,
-                privateKey,
-              }),
-              databaseURL: databaseUrl,
-            });
+      const existing = admin.apps.length > 0 ? admin.apps[0] : null;
+      if (existing) {
+        this.app = existing;
+      } else if (emulatorHost) {
+        this.app = admin.initializeApp({ projectId });
+        this.logger.log(
+          `Firebase Admin initialised (emulator @ ${emulatorHost})`,
+        );
+      } else {
+        this.app = admin.initializeApp({
+          credential: admin.credential.cert({
+            projectId,
+            clientEmail,
+            privateKey,
+          }),
+          databaseURL: databaseUrl,
+        });
+        this.logger.log('Firebase Admin initialised (cloud)');
+      }
       this._enabled = true;
-      this.logger.log('Firebase Admin initialised');
     } catch (err) {
       this.logger.error(`Firebase init failed: ${(err as Error).message}`);
     }
@@ -59,7 +71,10 @@ export class FirebaseService implements OnModuleInit {
   }
 
   /** Append a risk/analytics event. Silently skipped when Firebase is off. */
-  async logEvent(collection: string, payload: Record<string, unknown>): Promise<void> {
+  async logEvent(
+    collection: string,
+    payload: Record<string, unknown>,
+  ): Promise<void> {
     const db = this.firestore;
     if (!db) return;
     try {
@@ -69,7 +84,9 @@ export class FirebaseService implements OnModuleInit {
       });
     } catch (err) {
       // Analytics logging must never break the request path.
-      this.logger.warn(`Failed to log event to ${collection}: ${(err as Error).message}`);
+      this.logger.warn(
+        `Failed to log event to ${collection}: ${(err as Error).message}`,
+      );
     }
   }
 }

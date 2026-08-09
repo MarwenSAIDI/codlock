@@ -1,11 +1,10 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsInt,
-  IsNumber,
   IsOptional,
-  IsPositive,
   IsString,
   IsUUID,
+  Max,
   MaxLength,
   Min,
 } from 'class-validator';
@@ -14,11 +13,6 @@ export class OrderItemDto {
   @ApiProperty({ format: 'uuid' })
   @IsUUID()
   productId: string;
-
-  @ApiProperty({ example: 'Oversized Cotton Tee' })
-  @IsString()
-  @MaxLength(160)
-  title: string;
 
   @ApiPropertyOptional({ example: 'M' })
   @IsOptional()
@@ -35,10 +29,6 @@ export class OrderItemDto {
   @ApiProperty({ example: 2, minimum: 1 })
   @IsInt()
   @Min(1)
+  @Max(100)
   quantity: number;
-
-  @ApiProperty({ example: 79.9, description: 'Unit price in TND.' })
-  @IsNumber({ maxDecimalPlaces: 2 })
-  @IsPositive()
-  unitPrice: number;
 }

@@ -8,7 +8,9 @@ import {
 
 export class CreateCustomerDto {
   @ApiProperty({ example: '+21620123456', description: 'E.164 phone number.' })
-  @IsPhoneNumber(undefined, { message: 'phone must be a valid international number' })
+  @IsPhoneNumber(undefined, {
+    message: 'phone must be a valid international number',
+  })
   phone: string;
 
   @ApiPropertyOptional({ example: 'Amine Ben Salah' })
@@ -17,7 +19,10 @@ export class CreateCustomerDto {
   @MaxLength(120)
   name?: string;
 
-  @ApiPropertyOptional({ example: 'Tunis', description: 'Delivery zone / governorate.' })
+  @ApiPropertyOptional({
+    example: 'Tunis',
+    description: 'Delivery zone / governorate.',
+  })
   @IsOptional()
   @IsString()
   @MaxLength(80)

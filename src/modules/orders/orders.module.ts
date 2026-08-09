@@ -1,17 +1,14 @@
-import { forwardRef, Module } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { CustomersModule } from '../customers/customers.module';
 import { RiskModule } from '../risk/risk.module';
 import { PaymentsModule } from '../payments/payments.module';
+import { ProductsModule } from '../products/products.module';
 import { OrdersService } from './orders.service';
 import { OrdersController } from './orders.controller';
 import { OrdersWebhookController } from './orders-webhook.controller';
 
 @Module({
-  imports: [
-    CustomersModule,
-    RiskModule,
-    forwardRef(() => PaymentsModule), // Orders ⇄ Payments (deposit link ↔ webhook)
-  ],
+  imports: [CustomersModule, ProductsModule, RiskModule, PaymentsModule],
   controllers: [OrdersController, OrdersWebhookController],
   providers: [OrdersService],
   exports: [OrdersService],

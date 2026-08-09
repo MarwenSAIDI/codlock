@@ -4,17 +4,17 @@ import {
   Get,
   Param,
   ParseUUIDPipe,
-  Patch,
   Post,
+  Query,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import {
   AuthenticatedSeller,
   CurrentSeller,
 } from '../../common/decorators/current-seller.decorator';
+import { PaginationQueryDto } from '../../common/dto/pagination.dto';
 import { OrdersService } from './orders.service';
 import { CreateOrderDto } from './dto/create-order.dto';
-import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 import { RecordOutcomeDto } from './dto/record-outcome.dto';
 
 @ApiTags('Orders')
@@ -24,15 +24,24 @@ export class OrdersController {
   constructor(private readonly orders: OrdersService) {}
 
   @Get()
-  @ApiOperation({ summary: "List the authenticated seller's orders" })
-  findAll(@CurrentSeller() seller: AuthenticatedSeller) {
-    return this.orders.findAllBySeller(seller.sellerId);
+  @ApiOperation({
+    summary: "List the authenticated seller's orders",
+    description: 'Paginated, newest first.',
+  })
+  findAll(
+    @CurrentSeller() seller: AuthenticatedSeller,
+    @Query() pagination: PaginationQueryDto,
+  ) {
+    return this.orders.findAllBySeller(seller.sellerId, pagination);
   }
 
   @Get(':id')
   @ApiOperation({ summary: 'Get an order by id' })
-  findOne(@Param('id', ParseUUIDPipe) id: string) {
-    return this.orders.findOne(id);
+  findOne(
+    @CurrentSeller() seller: AuthenticatedSeller,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.orders.findOneForSeller(seller.sellerId, id);
   }
 
   @Post()
@@ -49,28 +58,42 @@ export class OrdersController {
     summary: 'Run the risk engine and attach deposit terms',
     description: 'DRAFT / PREVIEW_GENERATED → RISK_EVALUATED.',
   })
-  evaluateRisk(@Param('id', ParseUUIDPipe) id: string) {
-    return this.orders.evaluateRisk(id);
+  evaluateRisk(
+    @CurrentSeller() seller: AuthenticatedSeller,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.orders.evaluateRisk(seller.sellerId, id);
   }
 
   @Post(':id/request-deposit')
   @ApiOperation({
     summary: 'Generate the Gravv deposit link (or skip for trusted buyers)',
-    description: 'RISK_EVALUATED → DEPOSIT_PENDING (or marks paid if deposit is 0).',
+    description:
+      'RISK_EVALUATED → DEPOSIT_PENDING (or marks paid if deposit is 0).',
   })
-  requestDeposit(@Param('id', ParseUUIDPipe) id: string) {
-    return this.orders.requestDeposit(id);
+  requestDeposit(
+    @CurrentSeller() seller: AuthenticatedSeller,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.orders.requestDeposit(seller.sellerId, id);
   }
 
-  @Patch(':id/status')
-  @ApiOperation({
-    summary: 'Apply a manual lifecycle transition (e.g. mark SHIPPED)',
-  })
-  updateStatus(
+  @Post(':id/ready-to-ship')
+  @ApiOperation({ summary: 'Mark a deposit-paid order ready to ship' })
+  markReadyToShip(
+    @CurrentSeller() seller: AuthenticatedSeller,
     @Param('id', ParseUUIDPipe) id: string,
-    @Body() dto: UpdateOrderStatusDto,
   ) {
-    return this.orders.transition(id, dto.status);
+    return this.orders.markReadyToShip(seller.sellerId, id);
+  }
+
+  @Post(':id/ship')
+  @ApiOperation({ summary: 'Ship an order that is ready to ship' })
+  markShipped(
+    @CurrentSeller() seller: AuthenticatedSeller,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.orders.markShipped(seller.sellerId, id);
   }
 
   @Post(':id/outcome')
@@ -79,9 +102,25 @@ export class OrdersController {
     description: 'Updates customer risk history for future scoring.',
   })
   recordOutcome(
+    @CurrentSeller() seller: AuthenticatedSeller,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: RecordOutcomeDto,
   ) {
-    return this.orders.recordOutcome(id, dto.outcome);
+    return this.orders.recordOutcome(seller.sellerId, id, dto.outcome);
+  }
+
+  @Post(':id/cancel')
+  @ApiOperation({
+    summary: 'Cancel an order abandoned before fulfilment',
+    description:
+      'Allowed from DRAFT / PREVIEW_GENERATED / RISK_EVALUATED / ' +
+      'DEPOSIT_PENDING → CANCELLED. Rejected once a deposit is paid or the ' +
+      'order is in fulfilment.',
+  })
+  cancel(
+    @CurrentSeller() seller: AuthenticatedSeller,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.orders.cancel(seller.sellerId, id);
   }
 }

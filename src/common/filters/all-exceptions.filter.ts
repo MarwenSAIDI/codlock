@@ -9,6 +9,9 @@ import {
 import { Request, Response } from 'express';
 import { ApiResponse } from '../dto/api-response.dto';
 
+/** `status` is a plain number, so compare against a number, not the enum. */
+const SERVER_ERROR_FLOOR: number = HttpStatus.INTERNAL_SERVER_ERROR;
+
 /**
  * Single funnel for every thrown error. Guarantees the failure envelope
  * matches the success envelope shape, and never leaks stack traces to clients.
@@ -25,13 +28,15 @@ export class AllExceptionsFilter implements ExceptionFilter {
 
     const { status, message } = this.normalise(exception);
 
-    if (status >= HttpStatus.INTERNAL_SERVER_ERROR) {
+    if (status >= SERVER_ERROR_FLOOR) {
       this.logger.error(
         `${req.method} ${req.originalUrl} → ${status}: ${message}`,
         exception instanceof Error ? exception.stack : undefined,
       );
     } else {
-      this.logger.warn(`${req.method} ${req.originalUrl} → ${status}: ${message}`);
+      this.logger.warn(
+        `${req.method} ${req.originalUrl} → ${status}: ${message}`,
+      );
     }
 
     res

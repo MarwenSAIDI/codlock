@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 
@@ -34,7 +34,24 @@ import { HealthModule } from './modules/health/health.module';
     }),
 
     // ── Basic abuse protection ──
-    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 120 }]),
+    // Limits are configurable. Storage defaults to in-memory, which is
+    // per-instance: behind >1 replica the effective limit is limit × replicas.
+    // For multi-instance deployment, drop in a shared store here — e.g.
+    //   import { ThrottlerStorageRedisService } from '@nest-lab/throttler-storage-redis';
+    //   storage: new ThrottlerStorageRedisService(config.get('redis.url'))
+    // gated on REDIS_URL. No dependency is pulled in until that is needed.
+    ThrottlerModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => ({
+        throttlers: [
+          {
+            ttl: config.get<number>('throttle.ttlMs') as number,
+            limit: config.get<number>('throttle.limit') as number,
+          },
+        ],
+      }),
+    }),
 
     // ── Infrastructure (global) ──
     SupabaseModule,
