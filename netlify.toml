@@ -1,0 +1,22 @@
+# Netlify deployment for the CODLOCK demo console.
+#
+# Why this file exists: Netlify publishes the repo root by default, and there is no
+# index.html there — this is a multi-service monorepo whose root holds only backend/,
+# frontend/, and the three agents. Serving a directory with no index is exactly what
+# produces Netlify's "Page not found". Pointing `publish` at frontend/ fixes it.
+#
+# There is no build step on purpose: the console is a single self-contained HTML file
+# with inline CSS and JS, so there is nothing to bundle and nothing to install.
+#
+# If the site was created through the Netlify UI with a "Base directory" set, clear it —
+# the paths here are relative to the repo root, and a stale base directory will make
+# `publish` resolve somewhere that does not exist.
+
+[build]
+  publish = "frontend"
+
+# SPA-style fallback so the console loads at any path, not just the exact root.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
