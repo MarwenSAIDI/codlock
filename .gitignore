@@ -1,0 +1,53 @@
+# Restored after being deleted in 3a7a94b ("chore: cleaned code").
+# Without this file every .env in the repo gets committed. Please do not remove it.
+
+# --- secrets: never commit ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+serviceAccount*.json
+
+# --- node ---
+node_modules/
+dist/
+build/
+npm-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# --- python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# uv.lock and package-lock.json ARE committed on purpose:
+# six people need identical dependency versions this weekend.
+
+# --- local artifacts ---
+.tmp/
+tmp/
+*.log
+coverage/
+previews/
+frontend/previews/
+
+# --- planning assets kept out of the repo on purpose ---
+*.png
+*.jpeg
+*.jpg
+!docs/**/*.png
+!backend/docs/**/*.png
+
+# --- editors / os ---
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
