@@ -24,6 +24,10 @@ export interface Config {
   gravvSellerAccountId: string | undefined;
   gravvSourceId: string | undefined;
   settlementCurrency: string;
+  /** Only used when settlement currency differs from the TND the customer sees. */
+  tndPerSettlementUnit: number;
+  /** ISO-2 of the buyer's country. Gravv reads it off the customer record. */
+  customerCountry: string;
 
   /**
    * Used only for the natural-language fallback, where an LLM turns a free-text
@@ -49,6 +53,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     gravvSellerAccountId: env.GRAVV_SELLER_ACCOUNT_ID || undefined,
     gravvSourceId: env.GRAVV_SOURCE_ID || undefined,
     settlementCurrency: env.SETTLEMENT_CURRENCY ?? 'USD',
+    tndPerSettlementUnit: num(env.TND_PER_SETTLEMENT_UNIT, 3.1),
+    customerCountry: env.CUSTOMER_COUNTRY ?? 'TN',
 
     geminiApiKey: env.GEMINI_API_KEY || undefined,
     nluModel: env.NLU_MODEL ?? 'gemini-flash-latest',

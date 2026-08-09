@@ -15,6 +15,7 @@ import { pathToFileURL } from 'node:url';
 import { loadConfig, type Config } from './config.js';
 import { GeminiExtractor, UnavailableExtractor, type Extractor } from './nlu.js';
 import { SkillRouter, type Envelope, type Handlers } from './router.js';
+import { GravvBackend } from './gravvBackend.js';
 import { PaymentService, StubBackend, type PaymentBackend } from './service.js';
 
 export const AGENT_NAME = 'CODLOCK Payment Agent';
@@ -124,7 +125,7 @@ export function selectBackend(config: Config): PaymentBackend {
         'grvSec_sandbox_... key or leave STUB_MODE=true.',
     );
   }
-  throw new Error('The live Gravv backend is not wired yet (waiting on a sandbox key).');
+  return new GravvBackend(config);
 }
 
 export function selectExtractor(config: Config): Extractor {

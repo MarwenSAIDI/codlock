@@ -154,6 +154,24 @@ Input `{ "payment_id", "order_id", "outcome": "accepted" | "refused", "courier_f
 as if no deposit existed — that is the status quo CODLOCK removes, and hiding it would
 make the demo lie.
 
+## Going live against Gravv
+
+Set `STUB_MODE=false` with a `grvSec_sandbox_` key and `GRAVV_SELLER_ACCOUNT_ID`
+(from `listAccounts`). Verified working end to end against the sandbox: a 29.800 TND
+deposit becomes a 9.61 USD collection and a real hosted checkout link.
+
+Three things the docs do not tell you, learned against the live sandbox:
+
+- **`createCustomer` wraps its fields in a `body` object.** Flat fields fail with a bare
+  `EOF`.
+- **The collection's country comes from the customer record, not the request.** A
+  customer with no address gives `payment method 'card' is not available for country ''`
+  no matter what `country` you send. The agent therefore creates each customer with a
+  TN address before its first deposit.
+- **`getCollection` currently fails through the MCP** with `x-tenant-id is missing`.
+  Confirmation falls back to scanning `listTransactions` for our `client_reference`.
+  Gravv's collections webhook is the durable fix and is the next piece of work.
+
 ## Configuration
 
 Copy `.env.example` to `.env`. `STUB_MODE=true` needs no credentials.
