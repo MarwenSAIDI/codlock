@@ -37,6 +37,21 @@ class Settings(BaseSettings):
         "anon/public key used by clients."
     )
 
+    # ── REST bridge (the /agent/* routes the NestJS backend calls) ──
+    peer_call_timeout_seconds: float = Field(
+        default=30.0,
+        description="Per-call timeout when invoking a peer agent's skill over A2A.",
+    )
+    preview_timeout_seconds: float = Field(
+        default=90.0,
+        description="How long the bridge polls a try-on render before answering 504. "
+        "Must exceed the Fitting Agent's own PREVIEW_TIMEOUT_SECONDS, and stay under "
+        "the backend's ORCHESTRATOR_TIMEOUT_MS or the backend gives up first.",
+    )
+    preview_poll_interval_seconds: float = Field(
+        default=2.0, description="Delay between get_preview polls while a render runs."
+    )
+
 
 @lru_cache
 def get_settings() -> Settings:

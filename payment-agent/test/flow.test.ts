@@ -137,6 +137,32 @@ describe('deposit lifecycle', () => {
     expect(second.output.payment_id).toBe(first.output.payment_id);
     expect(second.output.checkout_url).toBe(first.output.checkout_url);
   });
+
+  it('refuses a changed deposit on an order that already has a checkout', async () => {
+    // Idempotency replays an identical request; it must not swallow a different one.
+    // Returning the old checkout here would let the customer pay 29.800 while the
+    // backend records 45.000, and the gap only surfaces at settlement.
+    const payload = { ...ORDER, order_id: 'ord_rescored' };
+    const first = await call('collect_deposit', payload);
+    expect(first.output.status).toBe('awaiting_payment');
+
+    const conflicting = await call('collect_deposit', {
+      ...payload, deposit: { amount: '45.000', currency: 'TND' },
+    });
+    expect(conflicting.ok).toBe(false);
+    expect(conflicting.error.type).toBe('ConflictError');
+    expect(conflicting.error.message).toContain('29.800');
+  });
+
+  it('still replays when only the audit fields differ', async () => {
+    // risk_score and deposit_rate are carried for the record, not for the charge, so a
+    // re-send that only restates them is the same request and must replay, not conflict.
+    const payload = { ...ORDER, order_id: 'ord_same_money' };
+    const first = await call('collect_deposit', payload);
+    const again = await call('collect_deposit', { ...payload, risk_score: 71 });
+    expect(again.ok, JSON.stringify(again)).toBe(true);
+    expect(again.output.payment_id).toBe(first.output.payment_id);
+  });
 });
 
 describe('errors are structured, never crashes', () => {

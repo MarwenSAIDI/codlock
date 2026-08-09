@@ -53,6 +53,14 @@ export default () => ({
     baseUrl: process.env.ORCHESTRATOR_BASE_URL as string,
     apiKey: process.env.ORCHESTRATOR_API_KEY as string,
     timeoutMs: parseInt(process.env.ORCHESTRATOR_TIMEOUT_MS ?? '15000', 10),
+    // A generative try-on render takes 10-30s end to end, so the fitting call
+    // cannot share the 15s budget that suits risk and payment. Keep this above
+    // the orchestrator's own PREVIEW_TIMEOUT_SECONDS so the agent is the one
+    // that reports a slow render, with a reason, rather than the socket.
+    previewTimeoutMs: parseInt(
+      process.env.ORCHESTRATOR_PREVIEW_TIMEOUT_MS ?? '120000',
+      10,
+    ),
     maxRetries: parseInt(process.env.ORCHESTRATOR_MAX_RETRIES ?? '3', 10),
     retryDelayMs: parseInt(
       process.env.ORCHESTRATOR_RETRY_DELAY_MS ?? '500',

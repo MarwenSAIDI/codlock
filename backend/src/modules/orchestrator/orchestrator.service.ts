@@ -17,6 +17,12 @@ import {
   RiskScoreResponse,
 } from './dto/orchestrator-contracts';
 
+/** Per-call overrides of the shared resilience defaults. */
+interface CallOptions {
+  timeoutMs?: number;
+  maxRetries?: number;
+}
+
 /**
  * The single outbound gateway from the NestJS core to the Codlock
  * Orchestrator Agent. Every AI-facing capability (fitting, risk, payment)
@@ -31,6 +37,7 @@ export class OrchestratorService {
   private readonly baseUrl: string;
   private readonly apiKey?: string;
   private readonly timeoutMs: number;
+  private readonly previewTimeoutMs: number;
   private readonly maxRetries: number;
   private readonly retryDelayMs: number;
   private readonly breaker: CircuitBreaker;
@@ -43,6 +50,9 @@ export class OrchestratorService {
     this.apiKey = this.config.get<string>('orchestrator.apiKey');
     this.timeoutMs = this.config.get<number>(
       'orchestrator.timeoutMs',
+    ) as number;
+    this.previewTimeoutMs = this.config.get<number>(
+      'orchestrator.previewTimeoutMs',
     ) as number;
     this.maxRetries = this.config.get<number>(
       'orchestrator.maxRetries',
@@ -62,13 +72,21 @@ export class OrchestratorService {
 
   // ── Public capabilities ────────────────────────────────────
 
-  /** Module 3 — trigger the Fitting Agent to render a try-on preview. */
+  /**
+   * Module 3 — trigger the Fitting Agent to render a try-on preview.
+   *
+   * A generative try-on takes 10-30s, so this call gets its own, longer budget: the
+   * default 15s timeout guaranteed a timeout on every successful render. It also gets
+   * no retries — the orchestrator anchors renders on a deterministic request_id, so a
+   * retry cannot make a slow render faster, it only stacks another full timeout on top
+   * of a customer already waiting.
+   */
   generatePreview(
     body: GeneratePreviewRequest,
   ): Promise<GeneratePreviewResponse> {
-    return this.post<GeneratePreviewResponse>(
-      '/agent/fitting/generate-preview',
-      body,
+    return this.request<GeneratePreviewResponse>(
+      { method: 'POST', url: '/agent/fitting/generate-preview', data: body },
+      { timeoutMs: this.previewTimeoutMs, maxRetries: 0 },
     );
   }
 
@@ -112,21 +130,33 @@ export class OrchestratorService {
   /**
    * Executes an HTTP call to the orchestrator wrapped in the circuit breaker,
    * with bounded exponential-backoff retries on transient failures only.
+   *
+   * `opts` lets one capability opt out of the shared defaults — a generative
+   * render needs minutes-scale patience and no retries, while every other call
+   * wants the tight, retried budget.
    */
-  private async request<T>(cfg: AxiosRequestConfig): Promise<T> {
-    return this.breaker.execute(() => this.withRetries<T>(cfg));
+  private async request<T>(
+    cfg: AxiosRequestConfig,
+    opts: CallOptions = {},
+  ): Promise<T> {
+    return this.breaker.execute(() => this.withRetries<T>(cfg, opts));
   }
 
-  private async withRetries<T>(cfg: AxiosRequestConfig): Promise<T> {
+  private async withRetries<T>(
+    cfg: AxiosRequestConfig,
+    opts: CallOptions = {},
+  ): Promise<T> {
+    const timeoutMs = opts.timeoutMs ?? this.timeoutMs;
+    const maxRetries = opts.maxRetries ?? this.maxRetries;
     let attempt = 0;
     let lastErr: unknown;
 
-    while (attempt <= this.maxRetries) {
+    while (attempt <= maxRetries) {
       try {
         const response = await firstValueFrom(
           this.http.request<T>({
             baseURL: this.baseUrl,
-            timeout: this.timeoutMs,
+            timeout: timeoutMs,
             ...cfg,
             headers: {
               'Content-Type': 'application/json',
@@ -145,12 +175,12 @@ export class OrchestratorService {
         const retriable =
           !status || status >= 500 || status === 408 || status === 429;
 
-        if (!retriable || attempt === this.maxRetries) break;
+        if (!retriable || attempt === maxRetries) break;
 
         const backoff = this.retryDelayMs * 2 ** attempt;
         this.logger.warn(
           `Orchestrator ${cfg.method} ${cfg.url} failed (attempt ${attempt + 1}/${
-            this.maxRetries + 1
+            maxRetries + 1
           }, status=${status ?? 'timeout'}). Retrying in ${backoff}ms.`,
         );
         await this.sleep(backoff);

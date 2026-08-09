@@ -56,7 +56,12 @@ export interface CreatePaymentLinkRequest {
 
 export interface CreatePaymentLinkResponse {
   paymentId: string;
-  paymentUrl: string;
-  expiresAt?: string;
+  /**
+   * The one-tap checkout link. Null when the Payment Agent answered
+   * `not_required` — a zero deposit is a legal outcome and never touches Gravv,
+   * so there is no link to open. `orders.payment_url` is nullable to match.
+   */
+  paymentUrl: string | null;
+  expiresAt?: string | null;
   status?: string;
 }

@@ -114,7 +114,26 @@ export class PaymentService {
   async collectDeposit(request: CollectDepositInput): Promise<CollectDepositOutput> {
     // order_id is the idempotency anchor: never open a second checkout.
     const existing = this.store.byOrderId(request.order_id);
-    if (existing) return toCollectOutput(existing);
+    if (existing) {
+      // Idempotent means *replay the same request*, not "ignore whatever changed".
+      // If the deposit has been re-decided since the first call, silently handing back
+      // the old checkout charges the customer the old amount while the backend records
+      // the new one — the two halves of the deposit disagree and nobody finds out until
+      // settlement. A conflict is a caller bug, so say so instead of guessing which
+      // amount was meant.
+      if (
+        !new Decimal(existing.deposit.amount).equals(new Decimal(request.deposit.amount)) ||
+        existing.deposit.currency !== request.deposit.currency
+      ) {
+        throw new ConflictError(
+          `Order ${request.order_id} already has a ${existing.deposit.amount} ` +
+            `${existing.deposit.currency} deposit (${existing.status}); this call asked ` +
+            `for ${request.deposit.amount} ${request.deposit.currency}. Re-scoring an ` +
+            'order that already has a checkout needs that checkout cancelled first.',
+        );
+      }
+      return toCollectOutput(existing);
+    }
 
     const common = {
       paymentId: `pay_${randomToken()}`,
@@ -204,6 +223,15 @@ export class PaymentService {
 
 export class LookupError extends Error {
   override readonly name = 'LookupError';
+}
+
+/**
+ * The request contradicts one already recorded under the same idempotency key.
+ * Surfaces as `ok: false, error.type: "ConflictError"`, which the orchestrator's
+ * bridge maps to HTTP 409 — a client error, so the backend does not retry it.
+ */
+export class ConflictError extends Error {
+  override readonly name = 'ConflictError';
 }
 
 function emptyRefs(): GravvRefs {

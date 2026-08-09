@@ -13,6 +13,7 @@ describe('OrchestratorService transport', () => {
       'orchestrator.baseUrl': 'http://orchestrator.test',
       'orchestrator.apiKey': undefined as string | undefined,
       'orchestrator.timeoutMs': 1000,
+      'orchestrator.previewTimeoutMs': 60_000,
       'orchestrator.maxRetries': 2,
       'orchestrator.retryDelayMs': 0,
       'orchestrator.circuitBreaker.failureThreshold': 2,
@@ -61,16 +62,46 @@ describe('OrchestratorService transport', () => {
   it.each([408, 429])('retries a transient %i', async (status) => {
     http.request
       .mockReturnValueOnce(throwError(() => axiosError(status)))
-      .mockReturnValueOnce(of({ data: { ok: true } }));
+      .mockReturnValueOnce(of({ data: { score: 5 } }));
 
-    await expect(
-      service.generatePreview({
-        customerId: 'c1',
-        productId: 'p1',
-        customerPhotoUrl: 'https://x/y.jpg',
-      }),
-    ).resolves.toEqual({ ok: true });
+    await expect(service.scoreRisk({ customerId: 'c1' })).resolves.toEqual({
+      score: 5,
+    });
     expect(http.request).toHaveBeenCalledTimes(2);
+  });
+
+  /**
+   * The fitting call opts out of both shared defaults. A generative try-on takes
+   * 10-30s, so the 15s default guaranteed a timeout on every successful render;
+   * and because the orchestrator anchors renders on a deterministic request_id, a
+   * retry cannot make a slow render faster — it only stacks another full timeout
+   * onto a customer who is already waiting.
+   */
+  describe('generatePreview', () => {
+    const preview = {
+      customerId: 'c1',
+      productId: 'p1',
+      customerPhotoUrl: 'https://x/y.jpg',
+    };
+
+    it('uses the longer render budget, not the shared timeout', async () => {
+      http.request.mockReturnValue(of({ data: { previewPhotoUrl: 'u' } }));
+
+      await service.generatePreview(preview);
+
+      expect(http.request).toHaveBeenCalledWith(
+        expect.objectContaining({ timeout: 60_000 }),
+      );
+    });
+
+    it('does not retry — a slow render is not made faster by asking twice', async () => {
+      http.request.mockReturnValue(throwError(() => axiosError(504)));
+
+      await expect(service.generatePreview(preview)).rejects.toBeInstanceOf(
+        ServiceUnavailableException,
+      );
+      expect(http.request).toHaveBeenCalledTimes(1);
+    });
   });
 
   it('does NOT retry a deterministic 4xx', async () => {

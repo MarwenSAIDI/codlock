@@ -16,7 +16,17 @@ from google.adk.agents.remote_a2a_agent import RemoteA2aAgent
 from google.adk.models.lite_llm import LiteLlm
 from supabase import Client, create_client
 
+from codlock_agents.orchestrator.peers import parse_peer_map
+from codlock_agents.orchestrator.risk import CustomerNotFound, score_customer
 from codlock_agents.orchestrator.settings import Settings
+
+#: Order states from which a hard delete is allowed. Past this point money or a courier
+#: is involved and the row is a financial record — the backend's ``cancel`` flow moves
+#: such an order to CANCELLED instead, which is recoverable. See ``orders.service.ts``.
+DELETABLE_ORDER_STATUSES = frozenset({"DRAFT", "PREVIEW_GENERATED", "RISK_EVALUATED"})
+
+#: Mirrors the Postgres ``channel`` enum. Upper case on the wire to Supabase.
+VALID_CHANNELS = frozenset({"WHATSAPP", "INSTAGRAM"})
 
 INSTRUCTION = (
     "You are the CodLock orchestrator agent. Use your internal tools to "
@@ -38,13 +48,10 @@ def parse_a2a_agents(raw: str) -> list[RemoteA2aAgent]:
     Each agent's card is resolved from f"{url}/.well-known/agent-card.json"
     lazily, on first delegation.
     """
-    agents: list[RemoteA2aAgent] = []
-    for entry in filter(None, (e.strip() for e in raw.split(","))):
-        name, _, url = entry.partition("=")
-        if not name or not url:
-            raise RuntimeError(f"Invalid A2A_AGENTS entry: {entry!r}")
-        agents.append(RemoteA2aAgent(name=name.strip(), agent_card=url.strip()))
-    return agents
+    return [
+        RemoteA2aAgent(name=name, agent_card=url)
+        for name, url in parse_peer_map(raw).items()
+    ]
 
 
 class OrchestratorTools:
@@ -53,23 +60,40 @@ class OrchestratorTools:
     Kept as instance methods, rather than free functions reaching for a
     process-global client, so tests can supply a fake client instead of
     talking to a real project.
-    """
 
-    # TODO: implement the tools below; signatures are placeholders for now.
+    Every tool returns a plain dict, and reports a problem as ``{"error": ...}`` rather
+    than raising: the caller is an LLM, and an exception becomes an opaque tool failure it
+    cannot explain to the user, while a returned message is something it can act on.
+    """
 
     def __init__(self, supabase: Client) -> None:
         self._supabase = supabase
 
     def risk_score_tool(self, order_id: str) -> dict:
-        """Compute a fraud/risk score for an order.
+        """Compute a refusal-risk score (0 safe - 100 high risk) for an order.
+
+        Scores the order's customer from their own refusal history and their delivery
+        zone's refusal rate. Does not decide the deposit — the backend maps a score onto
+        a deposit rate.
 
         Args:
             order_id: Identifier of the order to score.
+
+        Returns:
+            The score and the factors behind it, or an ``error`` key if the order or its
+            customer is unknown.
         """
-        raise NotImplementedError("risk scoring tool is not implemented yet")
+        order = self.get_order_tool(order_id)
+        if "error" in order:
+            return order
+        try:
+            assessment = score_customer(self._supabase, str(order["customer_id"]))
+        except CustomerNotFound:
+            return {"error": f"Order {order_id} references a customer that no longer exists."}
+        return {"order_id": order_id, **assessment.as_response()}
 
     def get_product_tool(self, sku: str, size: str | None = None) -> dict:
-        """Fetch a product by SKU, optionally narrowed to a specific size.
+        """Fetch a product by SKU, optionally narrowed to one it stocks in a given size.
 
         Args:
             sku: Product reference code shared across size/color variants.
@@ -80,7 +104,10 @@ class OrchestratorTools:
         """
         query = self._supabase.table("products").select("*").eq("sku", sku)
         if size:
-            query = query.eq("size", size)
+            # `sizes` is a Postgres text[] on the products table — one row lists every
+            # size it stocks. Filtering with .eq("size", ...) asks for a column that does
+            # not exist and fails the whole query at PostgREST.
+            query = query.contains("sizes", [size])
         rows = query.limit(1).execute().data
         return rows[0] if rows else {}
 
@@ -89,25 +116,87 @@ class OrchestratorTools:
 
         Args:
             order_id: Identifier of the order to fetch.
-        """
-        raise NotImplementedError("order getter tool is not implemented yet")
 
-    def create_order_tool(self, customer_id: str, items: list[dict]) -> dict:
-        """Create a new order for a customer.
+        Returns:
+            The order row, or an ``error`` key when no such order exists.
+        """
+        rows = (
+            self._supabase.table("orders").select("*").eq("id", order_id).limit(1).execute().data
+        )
+        if not rows:
+            return {"error": f"No order {order_id}."}
+        return rows[0]
+
+    def create_order_tool(
+        self,
+        customer_id: str,
+        seller_id: str,
+        channel: str,
+        total_price: float,
+        items: list[dict],
+        currency: str = "TND",
+    ) -> dict:
+        """Create a new DRAFT order for a customer.
+
+        The order starts in DRAFT with no risk score and no deposit: scoring and the
+        deposit decision are separate steps, so an order is never created already
+        pretending to have been assessed.
 
         Args:
             customer_id: Identifier of the customer placing the order.
-            items: Line items for the order.
+            seller_id: Identifier of the seller the order belongs to.
+            channel: Where the order came from — WHATSAPP or INSTAGRAM.
+            total_price: Order total in the order's currency, e.g. 149.0.
+            items: Line items, each e.g. {"productId": ..., "quantity": 1, "size": "M"}.
+            currency: ISO 4217 code for the price. Defaults to TND.
+
+        Returns:
+            The created order row, or an ``error`` key describing what was rejected.
         """
-        raise NotImplementedError("order creator tool is not implemented yet")
+        normalised_channel = str(channel or "").strip().upper()
+        if normalised_channel not in VALID_CHANNELS:
+            return {"error": f"channel must be one of {sorted(VALID_CHANNELS)}, got {channel!r}."}
+        if total_price is None or float(total_price) < 0:
+            return {"error": "total_price must be zero or greater."}
+
+        payload = {
+            "customer_id": customer_id,
+            "seller_id": seller_id,
+            "channel": normalised_channel,
+            "total_price": float(total_price),
+            "currency": str(currency or "TND").upper(),
+            "item_details": items or [],
+            "status": "DRAFT",
+        }
+        rows = self._supabase.table("orders").insert(payload).execute().data
+        if not rows:
+            return {"error": "Supabase accepted the insert but returned no row."}
+        return rows[0]
 
     def delete_order_tool(self, order_id: str) -> dict:
-        """Delete an existing order by id.
+        """Delete an order that has not yet reached payment.
+
+        Refuses once a deposit or a courier is involved: from DEPOSIT_PENDING onwards the
+        row is a financial record, and cancelling such an order is the backend's job
+        (it moves it to CANCELLED, which is recoverable and auditable).
 
         Args:
             order_id: Identifier of the order to delete.
+
+        Returns:
+            ``{"deleted": true, ...}`` on success, otherwise an ``error`` key.
         """
-        raise NotImplementedError("order deleter tool is not implemented yet")
+        order = self.get_order_tool(order_id)
+        if "error" in order:
+            return order
+        status = str(order.get("status") or "")
+        if status not in DELETABLE_ORDER_STATUSES:
+            return {
+                "error": f"Order {order_id} is {status}; only "
+                f"{sorted(DELETABLE_ORDER_STATUSES)} can be deleted. Cancel it instead.",
+            }
+        self._supabase.table("orders").delete().eq("id", order_id).execute()
+        return {"deleted": True, "order_id": order_id, "previous_status": status}
 
     def as_list(self) -> list:
         return [
