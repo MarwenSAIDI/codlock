@@ -6,6 +6,7 @@ project or live services just to prove the wiring is correct.
 
 from __future__ import annotations
 
+import httpx
 import pytest
 from google.adk.agents.remote_a2a_agent import RemoteA2aAgent
 
@@ -20,6 +21,8 @@ def settings(**overrides) -> Settings:
         "model_api_key": "test-key",
         "supabase_url": "https://example.test",
         "supabase_key": "test-service-key",
+        "backend_base_url": "http://backend.test/api/v1",
+        "backend_api_token": "test-backend-token",
         "a2a_agents": "",
     }
     return Settings(_env_file=None, **{**defaults, **overrides})  # type: ignore[call-arg]
@@ -28,6 +31,15 @@ def settings(**overrides) -> Settings:
 class FakeSupabase:
     def table(self, name: str):
         raise AssertionError("tools should not be called during agent assembly")
+
+
+def fake_backend() -> httpx.Client:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise AssertionError("tools should not be called during agent assembly")
+
+    return httpx.Client(
+        base_url="http://backend.test/api/v1", transport=httpx.MockTransport(handler)
+    )
 
 
 # --------------------------------------------------------------------------------------
@@ -59,7 +71,9 @@ def test_parse_a2a_agents_rejects_malformed_entries(bad):
 
 
 def test_build_agent_registers_every_internal_tool():
-    agent = build_agent(settings(), supabase=FakeSupabase(), remote_agents=[])
+    agent = build_agent(
+        settings(), supabase=FakeSupabase(), backend=fake_backend(), remote_agents=[]
+    )
     assert agent.name == "codlock_orchestrator"
     assert [t.__name__ for t in agent.tools] == [
         "risk_score_tool",
@@ -72,7 +86,9 @@ def test_build_agent_registers_every_internal_tool():
 
 def test_build_agent_wires_in_the_given_remote_peers():
     peers = [RemoteA2aAgent(name="fitting", agent_card="http://localhost:8002")]
-    agent = build_agent(settings(), supabase=FakeSupabase(), remote_agents=peers)
+    agent = build_agent(
+        settings(), supabase=FakeSupabase(), backend=fake_backend(), remote_agents=peers
+    )
     assert agent.sub_agents == peers
 
 
@@ -80,5 +96,6 @@ def test_build_agent_parses_a2a_agents_from_settings_when_not_overridden():
     agent = build_agent(
         settings(a2a_agents="payment=http://localhost:8001"),
         supabase=FakeSupabase(),
+        backend=fake_backend(),
     )
     assert [a.name for a in agent.sub_agents] == ["payment"]

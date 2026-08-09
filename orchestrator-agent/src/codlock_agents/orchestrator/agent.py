@@ -4,13 +4,15 @@ Coordinates order fulfillment by calling its own tools (risk scoring, product
 lookup, order management) and delegating to specialized agents discovered
 over A2A (e.g. payment, fitting).
 
-The Supabase client and the list of remote peers are both injectable into
-:func:`build_agent` so tests can exercise agent wiring without a live
-Supabase project or live peer services.
+The Supabase client, the backend HTTP client, and the list of remote peers
+are all injectable into :func:`build_agent` so tests can exercise agent
+wiring without a live Supabase project, a live backend, or live peer
+services.
 """
 
 from __future__ import annotations
 
+import httpx
 from google.adk import Agent
 from google.adk.agents.remote_a2a_agent import RemoteA2aAgent
 from google.adk.models.lite_llm import LiteLlm
@@ -28,6 +30,19 @@ INSTRUCTION = (
 
 def build_supabase_client(settings: Settings) -> Client:
     return create_client(settings.supabase_url, settings.supabase_key)
+
+
+def build_backend_client(settings: Settings) -> httpx.Client:
+    """HTTP client for the CODLOCK NestJS backend, pre-authenticated.
+
+    Every order/risk route the backend exposes is seller-scoped via its JWT
+    bearer auth, so the token is attached once here rather than per call.
+    """
+    return httpx.Client(
+        base_url=settings.backend_base_url,
+        headers={"Authorization": f"Bearer {settings.backend_api_token}"},
+        timeout=10.0,
+    )
 
 
 def parse_a2a_agents(raw: str) -> list[RemoteA2aAgent]:
@@ -48,25 +63,35 @@ def parse_a2a_agents(raw: str) -> list[RemoteA2aAgent]:
 
 
 class OrchestratorTools:
-    """Internal tools bound to a Supabase client.
+    """Internal tools bound to a Supabase client and a backend HTTP client.
 
-    Kept as instance methods, rather than free functions reaching for a
-    process-global client, so tests can supply a fake client instead of
-    talking to a real project.
+    Kept as instance methods, rather than free functions reaching for
+    process-global clients, so tests can supply fakes instead of talking to
+    a real Supabase project or a live backend.
     """
 
-    # TODO: implement the tools below; signatures are placeholders for now.
-
-    def __init__(self, supabase: Client) -> None:
+    def __init__(self, supabase: Client, backend: httpx.Client) -> None:
         self._supabase = supabase
+        self._backend = backend
 
     def risk_score_tool(self, order_id: str) -> dict:
-        """Compute a fraud/risk score for an order.
+        """Run the risk engine for an order and attach its deposit terms.
+
+        Calls ``POST /orders/{order_id}/evaluate-risk`` on the CODLOCK
+        backend, which scores the order's customer and channel and persists
+        the resulting risk tier and deposit amount. Only valid for an order
+        in DRAFT or PREVIEW_GENERATED status.
 
         Args:
             order_id: Identifier of the order to score.
+
+        Returns:
+            The order after evaluation, including its risk_score,
+            deposit_rate, and deposit_amount.
         """
-        raise NotImplementedError("risk scoring tool is not implemented yet")
+        response = self._backend.post(f"/orders/{order_id}/evaluate-risk")
+        response.raise_for_status()
+        return response.json()
 
     def get_product_tool(self, sku: str, size: str | None = None) -> dict:
         """Fetch a product by SKU, optionally narrowed to a specific size.
@@ -87,27 +112,56 @@ class OrchestratorTools:
     def get_order_tool(self, order_id: str) -> dict:
         """Fetch an order by id.
 
+        Calls ``GET /orders/{order_id}`` on the CODLOCK backend.
+
         Args:
             order_id: Identifier of the order to fetch.
         """
-        raise NotImplementedError("order getter tool is not implemented yet")
+        response = self._backend.get(f"/orders/{order_id}")
+        response.raise_for_status()
+        return response.json()
 
-    def create_order_tool(self, customer_id: str, items: list[dict]) -> dict:
-        """Create a new order for a customer.
+    def create_order_tool(self, customer_id: str, channel: str, items: list[dict]) -> dict:
+        """Create a new DRAFT order for a customer.
+
+        Calls ``POST /orders`` on the CODLOCK backend.
 
         Args:
-            customer_id: Identifier of the customer placing the order.
-            items: Line items for the order.
+            customer_id: Identifier of the customer placing the order. The
+                customer must already exist for the seller the backend token
+                belongs to.
+            channel: Social channel the order originated from — one of
+                "WHATSAPP" or "INSTAGRAM".
+            items: Line items, up to 50, each shaped like
+                {"productId": str, "quantity": int, "size": str (optional),
+                "color": str (optional)}.
+
+        Returns:
+            The newly created order, in DRAFT status.
         """
-        raise NotImplementedError("order creator tool is not implemented yet")
+        response = self._backend.post(
+            "/orders",
+            json={"customerId": customer_id, "channel": channel, "items": items},
+        )
+        response.raise_for_status()
+        return response.json()
 
     def delete_order_tool(self, order_id: str) -> dict:
-        """Delete an existing order by id.
+        """Cancel an order abandoned before fulfilment.
+
+        Calls ``POST /orders/{order_id}/cancel``. The backend has no hard
+        delete for orders — cancellation is the closest equivalent, and is
+        only allowed before a deposit has been paid.
 
         Args:
-            order_id: Identifier of the order to delete.
+            order_id: Identifier of the order to cancel.
+
+        Returns:
+            The order in CANCELLED status.
         """
-        raise NotImplementedError("order deleter tool is not implemented yet")
+        response = self._backend.post(f"/orders/{order_id}/cancel")
+        response.raise_for_status()
+        return response.json()
 
     def as_list(self) -> list:
         return [
@@ -123,10 +177,14 @@ def build_agent(
     settings: Settings,
     *,
     supabase: Client | None = None,
+    backend: httpx.Client | None = None,
     remote_agents: list[RemoteA2aAgent] | None = None,
 ) -> Agent:
     """Assemble the root orchestrator agent from settings."""
-    tools = OrchestratorTools(supabase if supabase is not None else build_supabase_client(settings))
+    tools = OrchestratorTools(
+        supabase if supabase is not None else build_supabase_client(settings),
+        backend if backend is not None else build_backend_client(settings),
+    )
     sub_agents = (
         parse_a2a_agents(settings.a2a_agents) if remote_agents is None else remote_agents
     )

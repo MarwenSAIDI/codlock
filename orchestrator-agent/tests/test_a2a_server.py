@@ -22,6 +22,8 @@ def stub_settings(**overrides) -> Settings:
         "model_api_key": "test-key",
         "supabase_url": "https://example.test",
         "supabase_key": "test-service-key",
+        "backend_base_url": "http://backend.test/api/v1",
+        "backend_api_token": "test-backend-token",
         "a2a_agents": "",
     }
     return Settings(_env_file=None, **{**defaults, **overrides})  # type: ignore[call-arg]

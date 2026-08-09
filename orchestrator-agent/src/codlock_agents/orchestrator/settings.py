@@ -37,6 +37,16 @@ class Settings(BaseSettings):
         "anon/public key used by clients."
     )
 
+    backend_base_url: str = Field(
+        description="Base URL of the CODLOCK NestJS backend that owns order and risk "
+        "data, including its API prefix, e.g. 'http://localhost:8080/api/v1'."
+    )
+    backend_api_token: str = Field(
+        description="Bearer token the orchestrator authenticates to the backend with. "
+        "Every order/risk route is seller-scoped, so this token's JWT `sub` claim must "
+        "be a valid seller id."
+    )
+
 
 @lru_cache
 def get_settings() -> Settings:

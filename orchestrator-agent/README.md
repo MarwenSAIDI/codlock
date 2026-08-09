@@ -11,15 +11,16 @@ callers cannot tell and do not care.
 
 ## Run it
 
-Needs a model endpoint and a Supabase project — the orchestrator has no stub mode,
-because product lookup and order fulfillment have nothing to answer without them.
+Needs a model endpoint, a Supabase project, and the CODLOCK backend — the orchestrator
+has no stub mode, because product lookup and order fulfillment have nothing to answer
+without them.
 
 ```bash
 cd orchestrator-agent
-cp .env.example .env   # fill in MODEL_*, A2A_AGENTS, SUPABASE_*
+cp .env.example .env   # fill in MODEL_*, A2A_AGENTS, SUPABASE_*, BACKEND_*
 uv sync --extra dev
 uv run orchestrator-agent   # http://127.0.0.1:8000
-uv run pytest               # 20 tests, no live credentials needed
+uv run pytest               # no live credentials needed
 ```
 
 Serves its card at `/.well-known/agent-card.json` and a `/health` probe, same as every
@@ -47,9 +48,18 @@ The same script works against the Fitting Agent (`:8002`) and the Payment Agent 
 | Concern | How |
 |---|---|
 | Product lookup | `get_product_tool` — reads the `products` table in Supabase. |
-| Risk scoring, order get/create/delete | Internal tools, not implemented yet — placeholders that raise `NotImplementedError` until owned. |
+| Risk scoring | `risk_score_tool` — `POST {BACKEND_BASE_URL}/orders/{id}/evaluate-risk`. |
+| Order get | `get_order_tool` — `GET {BACKEND_BASE_URL}/orders/{id}`. |
+| Order create | `create_order_tool` — `POST {BACKEND_BASE_URL}/orders`. |
+| Order delete | `delete_order_tool` — `POST {BACKEND_BASE_URL}/orders/{id}/cancel` (the backend has no hard delete for orders; cancellation is the closest equivalent). |
 | Try-on preview | Delegated to the Fitting Agent over A2A (`fitting` in `A2A_AGENTS`). |
 | Deposit collection and settlement | Delegated to the Payment Agent over A2A (`payment` in `A2A_AGENTS`). |
+
+The four backend-backed tools call the CODLOCK NestJS backend directly over HTTP —
+see `backend/src/modules/orders/orders.controller.ts` and `backend/src/modules/risk/risk.controller.ts`
+for the routes, and their `dto/` files for exact payload shapes. Every route is
+seller-scoped via JWT bearer auth, so `BACKEND_API_TOKEN` must carry a valid seller id
+in its `sub` claim.
 
 Peers are configured with `A2A_AGENTS=name=url,...`; each peer's card is resolved from
 `{url}/.well-known/agent-card.json` lazily, on the orchestrator's first delegation to it
@@ -58,9 +68,9 @@ actually expects on the wire.
 
 ## Configuration
 
-Copy `.env.example` to `.env`. Every value is required — a missing `MODEL_*` or
-`SUPABASE_*` variable fails the agent at startup with a clear validation error, rather
-than the first time a customer's request needs it.
+Copy `.env.example` to `.env`. Every value is required — a missing `MODEL_*`,
+`SUPABASE_*`, or `BACKEND_*` variable fails the agent at startup with a clear
+validation error, rather than the first time a customer's request needs it.
 
 `MODEL_NAME` is a LiteLLM-style model id (e.g. `openai/gpt-4o`, `anthropic/claude-sonnet-5`)
 resolved against `MODEL_API_URL` / `MODEL_API_KEY`.
